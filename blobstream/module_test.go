@@ -492,6 +492,7 @@ func TestProveShares(t *testing.T) {
 			expectedProof: func() ResultShareProof {
 				proof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[6].eds, namespace.PayForBlobNamespace, shares.NewRange(0, 2))
 				require.NoError(t, err)
+				require.NoError(t, proof.Validate(api.blocks[6].dataRoot))
 				return ResultShareProof{ShareProof: proof}
 			}(),
 		},
@@ -505,6 +506,7 @@ func TestProveShares(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tc.expectedProof, *result)
+				assert.NoError(t, result.ShareProof.Validate(api.blocks[6].dataRoot))
 			}
 		})
 	}
