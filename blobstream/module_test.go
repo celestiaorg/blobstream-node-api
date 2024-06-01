@@ -546,11 +546,11 @@ func TestProveCommitment(t *testing.T) {
 				require.Greater(t, startShareIndex, 0)
 				sharesProof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[6].eds, ns.ToAppNamespace(), shares.NewRange(startShareIndex, startShareIndex+len(blobShares)))
 				require.NoError(t, err)
+				require.NoError(t, sharesProof.Validate(api.blocks[6].dataRoot))
 
 				var subtreeRoots [][]byte
 				var dataCursor int
 				for _, proof := range sharesProof.ShareProofs {
-					// TODO: do we want directly use the default subtree root threshold or want to allow specifying which version to use?
 					ranges, err := nmt.ToLeafRanges(int(proof.Start), int(proof.End), appconsts.DefaultSubtreeRootThreshold)
 					require.NoError(t, err)
 					roots, err := computeSubtreeRoots(blobShares[dataCursor:proof.End-proof.Start], ranges, int(proof.Start))
@@ -574,10 +574,10 @@ func TestProveCommitment(t *testing.T) {
 				}
 
 				// make sure we're creating a valid proof for the test
-				// require.NoError(t, commitmentProofs.Validate())
-				// valid, err := commitmentProofs.Verify(api.blocks[6].dataRoot, appconsts.DefaultSubtreeRootThreshold)
-				// require.NoError(t, err)
-				// require.True(t, valid)
+				require.NoError(t, commitmentProofs.Validate())
+				valid, err := commitmentProofs.Verify(api.blocks[6].dataRoot, appconsts.DefaultSubtreeRootThreshold)
+				require.NoError(t, err)
+				require.True(t, valid)
 
 				return ResultCommitmentProof{CommitmentProof: commitmentProofs}
 			}(),

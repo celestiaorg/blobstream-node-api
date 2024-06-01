@@ -372,6 +372,7 @@ func (api API) ProveShares(ctx context.Context, height uint64, start, end uint64
 
 // ProveCommitment generates a commitment proof for a share commitment.
 func (api API) ProveCommitment(ctx context.Context, height uint64, namespace share.Namespace, shareCommitment bytes.HexBytes) (*ResultCommitmentProof, error) {
+	// TODO debug this
 	if height == 0 {
 		return nil, fmt.Errorf("height cannot be equal to 0")
 	}
@@ -475,6 +476,7 @@ func (api API) ProveCommitment(ctx context.Context, height uint64, namespace sha
 }
 
 // computeSubtreeRoots takes a set of shares and ranges and returns the corresponding subtree roots.
+// the offset is the number of shares that are before the subtree roots we're calculating.
 func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset int) ([][]byte, error) {
 	if len(shares) == 0 {
 		return nil, fmt.Errorf("cannot compute subtree roots for an empty shares list")
@@ -486,20 +488,33 @@ func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset in
 		return nil, fmt.Errorf("the offset %d cannot be stricly negative", offset)
 	}
 	hasher := nmt.NewNmtHasher(share.NewSHA256Hasher(), share.NamespaceSize, true)
-	tree := nmt.New(hasher, nmt.NamespaceIDSize(share.NamespaceSize), nmt.IgnoreMaxNamespace(true))
+	tree := nmt.New(hasher, nmt.IgnoreMaxNamespace(true), nmt.NamespaceIDSize(share.NamespaceSize))
 	for _, sh := range shares {
-		err := tree.Push(append(sh, share.GetNamespace(sh)...))
+		var leafData []byte
+		leafData = append(append(leafData, share.GetNamespace(sh)...), sh...)
+		err := tree.Push(leafData)
 		if err != nil {
 			return nil, err
 		}
 	}
 	var subtreeRoots [][]byte
 	for _, rg := range ranges {
-		root, err := tree.ComputeSubtreeRoot(rg.Start-offset, rg.End-offset)
-		if err != nil {
-			return nil, err
+		if rg.End-rg.Start == 1 {
+			// means a leaf is a subtree root. so we need to have only the leaf hash and not the root of that subtree
+			var leafData []byte
+			leafData = append(append(leafData, share.GetNamespace(shares[rg.Start-offset])...), shares[rg.Start-offset]...)
+			leafHash, err := hasher.HashLeaf(leafData)
+			if err != nil {
+				return nil, err
+			}
+			subtreeRoots = append(subtreeRoots, leafHash)
+		} else {
+			root, err := tree.ComputeSubtreeRoot(rg.Start-offset, rg.End-offset)
+			if err != nil {
+				return nil, err
+			}
+			subtreeRoots = append(subtreeRoots, root)
 		}
-		subtreeRoots = append(subtreeRoots, root)
 	}
 	return subtreeRoots, nil
 }
