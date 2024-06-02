@@ -491,7 +491,7 @@ func TestProveShares(t *testing.T) {
 			start:  0,
 			end:    2,
 			expectedProof: func() ResultShareProof {
-				proof, err := pkgproof.NewShareInclusionProofFromEDS(&api.blocks[6].eds, namespace.PayForBlobNamespace, shares.NewRange(0, 2))
+				proof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[6].eds, namespace.PayForBlobNamespace, shares.NewRange(0, 2))
 				require.NoError(t, err)
 				require.NoError(t, proof.Validate(api.blocks[6].dataRoot))
 				return ResultShareProof{ShareProof: proof}
@@ -607,12 +607,12 @@ func TestProveCommitment(t *testing.T) {
 // testBlock is a block struct used to keep track of all the information
 // needed to mock the API.
 type testBlock struct {
-	msgs     []types.MsgPayForBlobs
-	blobs    []types.Blob
+	msgs     []*types.MsgPayForBlobs
+	blobs    []*types.Blob
 	nss      []namespace.Namespace
-	eds      rsmt2d.ExtendedDataSquare
+	eds      *rsmt2d.ExtendedDataSquare
 	coreTxs  coretypes.Txs
-	dah      da.DataAvailabilityHeader
+	dah      *da.DataAvailabilityHeader
 	dataRoot []byte
 }
 
@@ -647,7 +647,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int
 					Height:   int64(height),
 					DataHash: api.blocks[height].dataRoot,
 				},
-				DAH: &api.blocks[height].dah,
+				DAH: api.blocks[height].dah,
 			}, nil
 		},
 		LocalHead: func(ctx context.Context) (*header.ExtendedHeader, error) {
@@ -656,7 +656,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int
 					Height:   int64(len(api.blocks) - 1),
 					DataHash: api.blocks[len(api.blocks)-1].dataRoot,
 				},
-				DAH: &api.blocks[len(api.blocks)-1].dah,
+				DAH: api.blocks[len(api.blocks)-1].dah,
 			}, nil
 		},
 		NetworkHead: func(ctx context.Context) (*header.ExtendedHeader, error) {
@@ -667,14 +667,14 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int
 				},
 				Commit:       nil,
 				ValidatorSet: nil,
-				DAH:          &api.blocks[len(api.blocks)-1].dah,
+				DAH:          api.blocks[len(api.blocks)-1].dah,
 			}, nil
 		},
 		GetEDS: func(ctx context.Context, header *header.ExtendedHeader) (*rsmt2d.ExtendedDataSquare, error) {
 			if header.Height() >= uint64(len(api.blocks)) {
 				return nil, errors.New("height greater than the blockchain")
 			}
-			return &api.blocks[header.Height()].eds, nil
+			return api.blocks[header.Height()].eds, nil
 		},
 		GetProof: func(ctx context.Context, height uint64, ns share.Namespace, commitment blob.Commitment) (*blob.Proof, error) {
 			if height >= uint64(len(api.blocks)) {
@@ -684,7 +684,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int
 				if bytes.Equal(msg.ShareCommitments[0], commitment) {
 					blobShareRange, err := square.BlobShareRange(api.blocks[height].coreTxs.ToSliceOfBytes(), i, 0, appconsts.LatestVersion)
 					require.NoError(t, err)
-					proof, err := pkgproof.NewShareInclusionProofFromEDS(&api.blocks[height].eds, api.blocks[height].nss[i], blobShareRange)
+					proof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[height].eds, api.blocks[height].nss[i], blobShareRange)
 					require.NoError(t, err)
 					var nmtProofs []*nmt.Proof
 					for _, proof := range proof.ShareProofs {
@@ -735,8 +735,8 @@ func (api *testAPI) addBlock(t *testing.T, numberOfBlobs, blobSize int) int {
 	kr := testfactory.GenerateKeyring(acc)
 	signer := types.NewKeyringSigner(kr, acc, "test")
 
-	var msgs []types.MsgPayForBlobs
-	var blobs []types.Blob
+	var msgs []*types.MsgPayForBlobs
+	var blobs []*types.Blob
 	var nss []namespace.Namespace
 	var coreTxs coretypes.Txs
 
@@ -767,8 +767,8 @@ func (api *testAPI) addBlock(t *testing.T, numberOfBlobs, blobSize int) int {
 		blobs:    blobs,
 		nss:      nss,
 		coreTxs:  coreTxs,
-		eds:      *eds,
-		dah:      dah,
+		eds:      eds,
+		dah:      &dah,
 		dataRoot: dataRoot,
 	})
 
@@ -804,7 +804,7 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 	require.Greater(t, startShareIndex, 0)
 
 	// create an inclusion proof of the blob using the share range instead of the commitment
-	sharesProof, err := pkgproof.NewShareInclusionProofFromEDS(&block.eds, ns.ToAppNamespace(), shares.NewRange(startShareIndex, startShareIndex+len(blobShares)))
+	sharesProof, err := pkgproof.NewShareInclusionProofFromEDS(block.eds, ns.ToAppNamespace(), shares.NewRange(startShareIndex, startShareIndex+len(blobShares)))
 	require.NoError(t, err)
 	require.NoError(t, sharesProof.Validate(block.dataRoot))
 
@@ -863,8 +863,8 @@ func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int, numberOf
 			msgs:     msgs,
 			blobs:    blobs,
 			nss:      nss,
-			eds:      *eds,
-			dah:      dah,
+			eds:      eds,
+			dah:      &dah,
 			dataRoot: dataRoot,
 			coreTxs:  coreTxs,
 		})
@@ -875,14 +875,14 @@ func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int, numberOf
 // createTestBlobTransactions generates a set of transactions that can be added to a blob.
 // The number of transactions dictates the number of PFBs that will be returned.
 // The size refers to the size of the data contained in the PFBs in bytes.
-func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int) ([]namespace.Namespace, []types.MsgPayForBlobs, []types.Blob, []coretypes.Tx) {
+func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int) ([]namespace.Namespace, []*types.MsgPayForBlobs, []*types.Blob, []coretypes.Tx) {
 	acc := "blobstream-api-tests"
 	kr := testfactory.GenerateKeyring(acc)
 	signer := types.NewKeyringSigner(kr, acc, "test")
 
 	var nss []namespace.Namespace
-	var msgs []types.MsgPayForBlobs
-	var blobs []types.Blob
+	var msgs []*types.MsgPayForBlobs
+	var blobs []*types.Blob
 	var coreTxs []coretypes.Tx
 	for i := 0; i < numberOfTransactions; i++ {
 		ns, msg, blob, coreTx := createTestBlobTransaction(t, signer, size+i*1000)
@@ -897,7 +897,7 @@ func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int
 
 // createTestBlobTransaction creates a test blob transaction using a specific signer and a specific PFB size.
 // The size is in bytes.
-func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size int) (namespace.Namespace, types.MsgPayForBlobs, types.Blob, coretypes.Tx) {
+func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size int) (namespace.Namespace, *types.MsgPayForBlobs, *types.Blob, coretypes.Tx) {
 	addr, err := signer.GetSignerInfo().GetAddress()
 	require.NoError(t, err)
 
@@ -912,5 +912,5 @@ func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size i
 	require.NoError(t, err)
 	cTx, err := coretypes.MarshalBlobTx(rawTx, blob)
 	require.NoError(t, err)
-	return ns, *msg, *blob, cTx
+	return ns, msg, blob, cTx
 }
