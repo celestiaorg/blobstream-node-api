@@ -124,7 +124,6 @@ func (commitmentProof CommitmentProof) Verify(root []byte, subtreeRootThreshold 
 			commitmentProof.SubtreeRoots[subtreeRootsCursor:subtreeRootsCursor+len(ranges)],
 			subtreeRootsWidth,
 			commitmentProof.RowProof.RowRoots[i],
-			subtreeRootProof.Start(),
 		)
 		if err != nil {
 			return false, err
