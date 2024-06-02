@@ -8,7 +8,7 @@ on:
 jobs:
 
   build:
-    name: Build
+    name: test
     runs-on: ubuntu-latest
     steps:
 
@@ -27,9 +27,6 @@ jobs:
 
       - name: Format
         run: diff -u <(echo -n) <(gofmt -d .)
-
-      - name: Build
-        run: go build -v .
 
       - name: Test and Coverage
         run: |
