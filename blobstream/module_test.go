@@ -597,6 +597,7 @@ func proveAllCommitments(t *testing.T, numberOfBlocks, blobSize int) {
 			t.Run(fmt.Sprintf("height=%d, blobIndex=%d", blockIndex, msgIndex), func(t *testing.T) {
 				// compute the commitment
 				actualCommitmentProof, err := api.api.ProveCommitment(context.Background(), uint64(blockIndex), msg.Namespaces[0], msg.ShareCommitments[0])
+				require.NoError(t, err)
 
 				// make sure the actual commitment attests to the data
 				require.NoError(t, actualCommitmentProof.CommitmentProof.Validate())
@@ -748,6 +749,8 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int
 // addBlock adds a new block the testAPI.
 // The added block can be created in the tests and added to the chain
 // to test specific cases.
+//
+//nolint:unused
 func (api *testAPI) addBlock(t *testing.T, numberOfBlobs, blobSize int) int {
 	acc := "blobstream-api-tests"
 	kr := testfactory.GenerateKeyring(acc)
@@ -810,6 +813,7 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 
 	// convert the blob to a number of shares
 	blobShares, err := blob.BlobsToShares(blb)
+	require.NoError(t, err)
 
 	// find the first share of the blob in the ODS
 	startShareIndex := -1
