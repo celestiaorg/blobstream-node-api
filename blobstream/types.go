@@ -3,6 +3,8 @@ package blobstream
 import (
 	"fmt"
 
+	"github.com/celestiaorg/celestia-app/pkg/shares"
+
 	"github.com/celestiaorg/celestia-app/pkg/appconsts"
 
 	"github.com/celestiaorg/celestia-node/share"
@@ -109,7 +111,7 @@ func (commitmentProof CommitmentProof) Verify(root []byte, subtreeRootThreshold 
 	// width.
 	// the subtree roots width is defined in ADR-013:
 	// https://github.com/celestiaorg/celestia-app/blob/main/docs/architecture/adr-013-non-interactive-default-rules-for-zero-padding.md
-	subtreeRootsWidth := nmt.SubtreeRootsWidth(numberOfShares, subtreeRootThreshold)
+	subtreeRootsWidth := shares.SubTreeWidth(numberOfShares, subtreeRootThreshold)
 
 	// verify the proof of the subtree roots
 	subtreeRootsCursor := 0

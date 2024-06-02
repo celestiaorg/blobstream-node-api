@@ -404,7 +404,7 @@ func (api API) ProveCommitment(ctx context.Context, height uint64, namespace sha
 	var dataCursor int
 	for _, proof := range *shareToRowRootProofs {
 		// TODO: do we want directly use the default subtree root threshold or want to allow specifying which version to use?
-		ranges, err := nmt.ToLeafRanges(proof.Start(), proof.End(), nmt.SubtreeRootsWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
+		ranges, err := nmt.ToLeafRanges(proof.Start(), proof.End(), shares.SubTreeWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
 		if err != nil {
 			return nil, err
 		}

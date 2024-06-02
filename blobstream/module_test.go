@@ -513,51 +513,6 @@ func TestProveShares(t *testing.T) {
 	}
 }
 
-// TestProveCommitmentAllCombinations tests proving all the commitments in a block.
-// The number of shares per blob increases with each blob to cover proving a large number
-// of possibilities.
-func TestProveCommitmentAllCombinations(t *testing.T) {
-	tests := map[string]struct {
-		numberOfBlocks int
-		blobSize       int
-	}{
-		"very small blobs that take less than a share": {numberOfBlocks: 20, blobSize: 350},
-		"small blobs that take 2 shares":               {numberOfBlocks: 20, blobSize: 1000},
-		"small blobs that take ~10 shares":             {numberOfBlocks: 10, blobSize: 5000},
-		"large blobs ~100 shares":                      {numberOfBlocks: 5, blobSize: 50000},
-		"very large blobs ~1500 shares":                {numberOfBlocks: 3, blobSize: 750000},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			proveAllCommitments(t, tc.numberOfBlocks, tc.blobSize)
-		})
-	}
-}
-
-func proveAllCommitments(t *testing.T, numberOfBlocks, blobSize int) {
-	api := newTestAPI(t, numberOfBlocks, blobSize, 10)
-	for blockIndex, block := range api.blocks {
-		for msgIndex, msg := range block.msgs {
-			t.Run(fmt.Sprintf("height=%d, blobIndex=%d", blockIndex, msgIndex), func(t *testing.T) {
-				actualCommitmentProof, err := api.api.ProveCommitment(context.Background(), uint64(blockIndex), msg.Namespaces[0], msg.ShareCommitments[0])
-				require.NoError(t, actualCommitmentProof.CommitmentProof.Validate())
-				valid, err := actualCommitmentProof.CommitmentProof.Verify(block.dataRoot, appconsts.DefaultSubtreeRootThreshold)
-				require.NoError(t, err)
-				require.True(t, valid)
-
-				expectedCommitmentProof := generateCommitmentProofFromBlock(t, block, msgIndex)
-				require.NoError(t, expectedCommitmentProof.CommitmentProof.Validate())
-				valid, err = expectedCommitmentProof.CommitmentProof.Verify(block.dataRoot, appconsts.DefaultSubtreeRootThreshold)
-				require.NoError(t, err)
-				require.True(t, valid)
-
-				assert.Equal(t, expectedCommitmentProof, *actualCommitmentProof)
-			})
-		}
-	}
-}
-
 func TestProveCommitment(t *testing.T) {
 	api := newTestAPI(t, 10, 300, 10)
 
@@ -594,13 +549,76 @@ func TestProveCommitment(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expectedProof, *result)
+				// make sure the actual proof can be validated and verified
 				assert.NoError(t, result.CommitmentProof.Validate())
 				valid, err := result.CommitmentProof.Verify(api.blocks[tc.height].dataRoot, appconsts.DefaultSubtreeRootThreshold)
 				assert.NoError(t, err)
 				assert.True(t, valid)
+
+				// make sure the expected proof is the same as the actual proof
+				assert.Equal(t, tc.expectedProof, *result)
+
+				// make sure the expected commitment commits to the subtree roots in the actual proof
+				actualCommitment, _ := merkle.ProofsFromByteSlices(result.CommitmentProof.SubtreeRoots)
+				assert.Equal(t, tc.commitment.Bytes(), actualCommitment)
 			}
 		})
+	}
+}
+
+// TestProveCommitmentAllCombinations tests proving all the commitments in a block.
+// The number of shares per blob increases with each blob to cover proving a large number
+// of possibilities.
+func TestProveCommitmentAllCombinations(t *testing.T) {
+	tests := map[string]struct {
+		numberOfBlocks int
+		blobSize       int
+	}{
+		"very small blobs that take less than a share": {numberOfBlocks: 20, blobSize: 350},
+		"small blobs that take 2 shares":               {numberOfBlocks: 20, blobSize: 1000},
+		"small blobs that take ~10 shares":             {numberOfBlocks: 10, blobSize: 5000},
+		"large blobs ~100 shares":                      {numberOfBlocks: 5, blobSize: 50000},
+		"large blobs ~150 shares":                      {numberOfBlocks: 5, blobSize: 75000},
+		"large blobs ~300 shares":                      {numberOfBlocks: 5, blobSize: 150000},
+		"very large blobs ~1500 shares":                {numberOfBlocks: 3, blobSize: 750000},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			proveAllCommitments(t, tc.numberOfBlocks, tc.blobSize)
+		})
+	}
+}
+
+func proveAllCommitments(t *testing.T, numberOfBlocks, blobSize int) {
+	api := newTestAPI(t, numberOfBlocks, blobSize, 10)
+	for blockIndex, block := range api.blocks {
+		for msgIndex, msg := range block.msgs {
+			t.Run(fmt.Sprintf("height=%d, blobIndex=%d", blockIndex, msgIndex), func(t *testing.T) {
+				// compute the commitment
+				actualCommitmentProof, err := api.api.ProveCommitment(context.Background(), uint64(blockIndex), msg.Namespaces[0], msg.ShareCommitments[0])
+
+				// make sure the actual commitment attests to the data
+				require.NoError(t, actualCommitmentProof.CommitmentProof.Validate())
+				valid, err := actualCommitmentProof.CommitmentProof.Verify(block.dataRoot, appconsts.DefaultSubtreeRootThreshold)
+				require.NoError(t, err)
+				require.True(t, valid)
+
+				// generate an expected proof and verify it's valid
+				expectedCommitmentProof := generateCommitmentProofFromBlock(t, block, msgIndex)
+				require.NoError(t, expectedCommitmentProof.CommitmentProof.Validate())
+				valid, err = expectedCommitmentProof.CommitmentProof.Verify(block.dataRoot, appconsts.DefaultSubtreeRootThreshold)
+				require.NoError(t, err)
+				require.True(t, valid)
+
+				// make sure the expected proof is the same as the actual on
+				assert.Equal(t, expectedCommitmentProof, *actualCommitmentProof)
+
+				// make sure the expected commitment commits to the subtree roots in the result proof
+				actualCommitment, _ := merkle.ProofsFromByteSlices(actualCommitmentProof.CommitmentProof.SubtreeRoots)
+				assert.Equal(t, msg.ShareCommitments[0], actualCommitment)
+			})
+		}
 	}
 }
 
@@ -812,7 +830,7 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 	var subtreeRoots [][]byte
 	var dataCursor int
 	for _, proof := range sharesProof.ShareProofs {
-		ranges, err := nmt.ToLeafRanges(int(proof.Start), int(proof.End), nmt.SubtreeRootsWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
+		ranges, err := nmt.ToLeafRanges(int(proof.Start), int(proof.End), shares.SubTreeWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
 		require.NoError(t, err)
 		roots, err := computeSubtreeRoots(blobShares[dataCursor:int32(dataCursor)+proof.End-proof.Start], ranges, int(proof.Start))
 		require.NoError(t, err)
