@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/celestiaorg/celestia-app v1.10.1
 	github.com/celestiaorg/celestia-node v0.13.5
-	github.com/celestiaorg/nmt v0.21.1-0.20240602091549-95c3325ebb06 // TODO replace after release
+	github.com/celestiaorg/nmt v0.21.1-0.20240602221058-a81b748b6f51 // TODO replace after release
 	github.com/celestiaorg/rsmt2d v0.13.1
 	github.com/stretchr/testify v1.9.0
 	github.com/tendermint/tendermint v0.34.29
