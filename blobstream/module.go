@@ -487,8 +487,7 @@ func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset in
 	if offset < 0 {
 		return nil, fmt.Errorf("the offset %d cannot be stricly negative", offset)
 	}
-	hasher := nmt.NewNmtHasher(share.NewSHA256Hasher(), share.NamespaceSize, true)
-	tree := nmt.New(hasher, nmt.IgnoreMaxNamespace(true), nmt.NamespaceIDSize(share.NamespaceSize))
+	tree := nmt.New(appconsts.NewBaseHashFunc(), nmt.IgnoreMaxNamespace(true), nmt.NamespaceIDSize(share.NamespaceSize))
 	for _, sh := range shares {
 		var leafData []byte
 		leafData = append(append(leafData, share.GetNamespace(sh)...), sh...)
@@ -499,22 +498,11 @@ func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset in
 	}
 	var subtreeRoots [][]byte
 	for _, rg := range ranges {
-		if rg.End-rg.Start == 1 {
-			// means a leaf is a subtree root. so we need to have only the leaf hash and not the root of that subtree
-			var leafData []byte
-			leafData = append(append(leafData, share.GetNamespace(shares[rg.Start-offset])...), shares[rg.Start-offset]...)
-			leafHash, err := hasher.HashLeaf(leafData)
-			if err != nil {
-				return nil, err
-			}
-			subtreeRoots = append(subtreeRoots, leafHash)
-		} else {
-			root, err := tree.ComputeSubtreeRoot(rg.Start-offset, rg.End-offset)
-			if err != nil {
-				return nil, err
-			}
-			subtreeRoots = append(subtreeRoots, root)
+		root, err := tree.ComputeSubtreeRoot(rg.Start-offset, rg.End-offset)
+		if err != nil {
+			return nil, err
 		}
+		subtreeRoots = append(subtreeRoots, root)
 	}
 	return subtreeRoots, nil
 }
