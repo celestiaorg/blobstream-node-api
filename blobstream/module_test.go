@@ -9,6 +9,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/celestiaorg/celestia-app/test/util/blobfactory"
+
 	"github.com/celestiaorg/celestia-app/app"
 	"github.com/celestiaorg/celestia-app/app/encoding"
 	"github.com/celestiaorg/celestia-app/pkg/appconsts"
@@ -17,7 +19,6 @@ import (
 	pkgproof "github.com/celestiaorg/celestia-app/pkg/proof"
 	"github.com/celestiaorg/celestia-app/pkg/shares"
 	"github.com/celestiaorg/celestia-app/pkg/square"
-	"github.com/celestiaorg/celestia-app/test/util/blobfactory"
 	"github.com/celestiaorg/celestia-app/test/util/testfactory"
 	"github.com/celestiaorg/celestia-app/x/blob/types"
 	"github.com/celestiaorg/celestia-node/blob"
@@ -370,7 +371,7 @@ func TestUint64ToInt(t *testing.T) {
 }
 
 func TestDataCommitment(t *testing.T) {
-	api := newTestAPI(t, 10, 1000)
+	api := newTestAPI(t, 10, 1000, 10)
 	tests := map[string]struct {
 		start, end             uint64
 		expectedDataCommitment bytes2.HexBytes
@@ -424,7 +425,7 @@ func TestDataCommitment(t *testing.T) {
 }
 
 func TestDataRootInclusionProof(t *testing.T) {
-	api := newTestAPI(t, 10, 1000)
+	api := newTestAPI(t, 10, 1000, 10)
 	tests := map[string]struct {
 		height        int64
 		start, end    uint64
@@ -472,7 +473,7 @@ func TestDataRootInclusionProof(t *testing.T) {
 }
 
 func TestProveShares(t *testing.T) {
-	api := newTestAPI(t, 10, 1000)
+	api := newTestAPI(t, 10, 1000, 10)
 	tests := map[string]struct {
 		height        uint64
 		start, end    uint64
@@ -490,7 +491,7 @@ func TestProveShares(t *testing.T) {
 			start:  0,
 			end:    2,
 			expectedProof: func() ResultShareProof {
-				proof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[6].eds, namespace.PayForBlobNamespace, shares.NewRange(0, 2))
+				proof, err := pkgproof.NewShareInclusionProofFromEDS(&api.blocks[6].eds, namespace.PayForBlobNamespace, shares.NewRange(0, 2))
 				require.NoError(t, err)
 				require.NoError(t, proof.Validate(api.blocks[6].dataRoot))
 				return ResultShareProof{ShareProof: proof}
@@ -512,14 +513,19 @@ func TestProveShares(t *testing.T) {
 	}
 }
 
+// TestProveCommitmentAllCombinations tests proving all the commitments in a block.
+// The number of shares per blob increases with each blob to cover proving a large number
+// of possibilities.
 func TestProveCommitmentAllCombinations(t *testing.T) {
 	tests := map[string]struct {
 		numberOfBlocks int
 		blobSize       int
 	}{
-		"small blobs that take less than a share": {numberOfBlocks: 50, blobSize: 350},
-		"small blobs that take 2 shares":          {numberOfBlocks: 50, blobSize: 1000},
-		"large blobs":                             {numberOfBlocks: 50, blobSize: 20000},
+		"very small blobs that take less than a share": {numberOfBlocks: 20, blobSize: 350},
+		"small blobs that take 2 shares":               {numberOfBlocks: 20, blobSize: 1000},
+		"small blobs that take ~10 shares":             {numberOfBlocks: 10, blobSize: 5000},
+		"large blobs ~100 shares":                      {numberOfBlocks: 5, blobSize: 50000},
+		"very large blobs ~1500 shares":                {numberOfBlocks: 3, blobSize: 750000},
 	}
 
 	for name, tc := range tests {
@@ -530,7 +536,7 @@ func TestProveCommitmentAllCombinations(t *testing.T) {
 }
 
 func proveAllCommitments(t *testing.T, numberOfBlocks, blobSize int) {
-	api := newTestAPI(t, numberOfBlocks, blobSize)
+	api := newTestAPI(t, numberOfBlocks, blobSize, 10)
 	for blockIndex, block := range api.blocks {
 		for msgIndex, msg := range block.msgs {
 			t.Run(fmt.Sprintf("height=%d, blobIndex=%d", blockIndex, msgIndex), func(t *testing.T) {
@@ -553,8 +559,7 @@ func proveAllCommitments(t *testing.T, numberOfBlocks, blobSize int) {
 }
 
 func TestProveCommitment(t *testing.T) {
-	api := newTestAPI(t, 10, 300)
-	bigBlockHeight := api.addBlock(t, 5, 1500)
+	api := newTestAPI(t, 10, 300, 10)
 
 	tests := map[string]struct {
 		height        uint64
@@ -564,31 +569,16 @@ func TestProveCommitment(t *testing.T) {
 		expectErr     bool
 	}{
 		"height == 0": {height: 0, expectErr: true},
-		//"valid case": {
-		//	height:     6,
-		//	ns:         api.blocks[6].msgs[0].Namespaces[0],
-		//	commitment: api.blocks[6].msgs[0].ShareCommitments[0],
-		//	expectedProof: func() ResultCommitmentProof {
-		//		commitmentProof := generateCommitmentProofFromBlock(t, api.blocks[6], 0)
-		//		//make sure we're creating a valid proof for the test
-		//		require.NoError(t, commitmentProof.CommitmentProof.Validate())
-		//		valid, err := commitmentProof.CommitmentProof.Verify(api.blocks[6].dataRoot, appconsts.DefaultSubtreeRootThreshold)
-		//		require.NoError(t, err)
-		//		require.True(t, valid)
-		//
-		//		return commitmentProof
-		//	}(),
-		//},
-		"valid case with a huge blob": {
-			height:     uint64(bigBlockHeight),
-			ns:         api.blocks[bigBlockHeight].msgs[3].Namespaces[0],
-			commitment: api.blocks[bigBlockHeight].msgs[3].ShareCommitments[0],
+		"valid case": {
+			height:     6,
+			ns:         api.blocks[6].msgs[0].Namespaces[0],
+			commitment: api.blocks[6].msgs[0].ShareCommitments[0],
 			expectedProof: func() ResultCommitmentProof {
-				commitmentProof := generateCommitmentProofFromBlock(t, api.blocks[bigBlockHeight], 3)
+				commitmentProof := generateCommitmentProofFromBlock(t, api.blocks[6], 0)
 
 				// make sure we're creating a valid proof for the test
 				require.NoError(t, commitmentProof.CommitmentProof.Validate())
-				valid, err := commitmentProof.CommitmentProof.Verify(api.blocks[bigBlockHeight].dataRoot, appconsts.DefaultSubtreeRootThreshold)
+				valid, err := commitmentProof.CommitmentProof.Verify(api.blocks[6].dataRoot, appconsts.DefaultSubtreeRootThreshold)
 				require.NoError(t, err)
 				require.True(t, valid)
 
@@ -614,65 +604,30 @@ func TestProveCommitment(t *testing.T) {
 	}
 }
 
-//func TestProvingAllPossibleCommitmentInSquare(t *testing.T) {
-//	api := newTestAPI(t, 10)
-//	newBlockHeight := api.addBlock(t, 100, 20000)
-//
-//	for i := 0; i < 100; i++ {
-//		proof := generateCommitmentProofFromBlock(t, api.blocks[newBlockHeight-1], i)
-//		assert.NoError(t, proof.CommitmentProof.Validate(), "failed to verify commitment proof", "index", i)
-//	}
-//}
-
-//func TestProvingAllPossibleCommitmentInSquare(t *testing.T) {
-//	api := newTestAPI(t, 10)
-//	newBlockHeight := api.addBlock(t, 100, 20000)
-//
-//	for i := 0; i < 100; i++ {
-//		proof := generateCommitmentProofFromBlock(t, api.blocks[newBlockHeight-1], i)
-//		assert.NoError(t, proof.CommitmentProof.Validate(), "failed to verify commitment proof", "index", i)
-//		commitmentProof, err := api.api.ProveCommitment(
-//			context.Background(),
-//			uint64(newBlockHeight),
-//			api.blocks[newBlockHeight-1].nss[i].Bytes(),
-//			api.blocks[newBlockHeight-1].msgs[i].ShareCommitments[0],
-//		)
-//		require.NoError(t, err)
-//		assert.NoError(t, commitmentProof.CommitmentProof.Validate())
-//		assert.Equal(t, proof, commitmentProof)
-//	}
-//}
-
-//
-//func TestProvingAllPossibleCommitmentInManySquares(t *testing.T) {
-//	api := newTestAPI(t, 10)
-//	for i := 1; i < 50; i++ {
-//		newBlockHeight := api.addBlock(t, i, 500)
-//		for j := 0; j < i; j++ {
-//			proof := generateCommitmentProofFromBlock(t, api.blocks[newBlockHeight-1], j)
-//			assert.NoError(t, proof.CommitmentProof.Validate(), "failed to verify commitment proof", "index", j)
-//		}
-//	}
-//}
-
+// testBlock is a block struct used to keep track of all the information
+// needed to mock the API.
 type testBlock struct {
-	msgs     []*types.MsgPayForBlobs
-	blobs    []*types.Blob
+	msgs     []types.MsgPayForBlobs
+	blobs    []types.Blob
 	nss      []namespace.Namespace
-	eds      *rsmt2d.ExtendedDataSquare
+	eds      rsmt2d.ExtendedDataSquare
 	coreTxs  coretypes.Txs
-	dah      *da.DataAvailabilityHeader
+	dah      da.DataAvailabilityHeader
 	dataRoot []byte
 }
 
+// testAPI an API that allows mocking all the methods and thoroughly testing them
 type testAPI struct {
 	api    *API
 	blocks []testBlock
 }
 
-func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
+// newTestAPI creates a new test API that fetches data from a test blockchain that has
+// a specific number of blocks. Each block has a number of PFBs. Each PFB has a single blob with
+// size blobSize or bigger.
+func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int, numberOfPFBs int) *testAPI {
 	blocks := []testBlock{{}} // so that the heights match the slice indexes
-	blocks = append(blocks, generateTestBlocks(t, numberOfBlocks, blobSize)...)
+	blocks = append(blocks, generateTestBlocks(t, numberOfBlocks, blobSize, numberOfPFBs)...)
 
 	api := &testAPI{
 		api:    &API{},
@@ -692,7 +647,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
 					Height:   int64(height),
 					DataHash: api.blocks[height].dataRoot,
 				},
-				DAH: api.blocks[height].dah,
+				DAH: &api.blocks[height].dah,
 			}, nil
 		},
 		LocalHead: func(ctx context.Context) (*header.ExtendedHeader, error) {
@@ -701,7 +656,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
 					Height:   int64(len(api.blocks) - 1),
 					DataHash: api.blocks[len(api.blocks)-1].dataRoot,
 				},
-				DAH: api.blocks[len(api.blocks)-1].dah,
+				DAH: &api.blocks[len(api.blocks)-1].dah,
 			}, nil
 		},
 		NetworkHead: func(ctx context.Context) (*header.ExtendedHeader, error) {
@@ -712,14 +667,14 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
 				},
 				Commit:       nil,
 				ValidatorSet: nil,
-				DAH:          api.blocks[len(api.blocks)-1].dah,
+				DAH:          &api.blocks[len(api.blocks)-1].dah,
 			}, nil
 		},
 		GetEDS: func(ctx context.Context, header *header.ExtendedHeader) (*rsmt2d.ExtendedDataSquare, error) {
 			if header.Height() >= uint64(len(api.blocks)) {
 				return nil, errors.New("height greater than the blockchain")
 			}
-			return api.blocks[header.Height()].eds, nil
+			return &api.blocks[header.Height()].eds, nil
 		},
 		GetProof: func(ctx context.Context, height uint64, ns share.Namespace, commitment blob.Commitment) (*blob.Proof, error) {
 			if height >= uint64(len(api.blocks)) {
@@ -729,7 +684,7 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
 				if bytes.Equal(msg.ShareCommitments[0], commitment) {
 					blobShareRange, err := square.BlobShareRange(api.blocks[height].coreTxs.ToSliceOfBytes(), i, 0, appconsts.LatestVersion)
 					require.NoError(t, err)
-					proof, err := pkgproof.NewShareInclusionProofFromEDS(api.blocks[height].eds, api.blocks[height].nss[i], blobShareRange)
+					proof, err := pkgproof.NewShareInclusionProofFromEDS(&api.blocks[height].eds, api.blocks[height].nss[i], blobShareRange)
 					require.NoError(t, err)
 					var nmtProofs []*nmt.Proof
 					for _, proof := range proof.ShareProofs {
@@ -772,14 +727,16 @@ func newTestAPI(t *testing.T, numberOfBlocks int, blobSize int) *testAPI {
 	return api
 }
 
-// addBlock adds a new block the testAPI that has multiple blobs of size blobSize.
+// addBlock adds a new block the testAPI.
+// The added block can be created in the tests and added to the chain
+// to test specific cases.
 func (api *testAPI) addBlock(t *testing.T, numberOfBlobs, blobSize int) int {
 	acc := "blobstream-api-tests"
 	kr := testfactory.GenerateKeyring(acc)
 	signer := types.NewKeyringSigner(kr, acc, "test")
 
-	var msgs []*types.MsgPayForBlobs
-	var blobs []*types.Blob
+	var msgs []types.MsgPayForBlobs
+	var blobs []types.Blob
 	var nss []namespace.Namespace
 	var coreTxs coretypes.Txs
 
@@ -810,24 +767,33 @@ func (api *testAPI) addBlock(t *testing.T, numberOfBlobs, blobSize int) int {
 		blobs:    blobs,
 		nss:      nss,
 		coreTxs:  coreTxs,
-		eds:      eds,
-		dah:      &dah,
+		eds:      *eds,
+		dah:      dah,
 		dataRoot: dataRoot,
 	})
 
 	return len(api.blocks) - 1
 }
 
+// generateCommitmentProofFromBlock takes a block and a PFB index and generates the commitment proof
+// using the traditional way of doing, instead of using the API.
 func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex int) ResultCommitmentProof {
+	// parse the namespace
 	ns, err := share.NamespaceFromBytes(
 		append(
 			[]byte{byte(block.blobs[blobIndex].NamespaceVersion)}, block.blobs[blobIndex].NamespaceId...,
 		),
 	)
 	require.NoError(t, err)
+
+	// create the blob from the data
 	blb, err := blob.NewBlob(uint8(block.blobs[blobIndex].ShareVersion), ns, block.blobs[blobIndex].Data)
 	require.NoError(t, err)
+
+	// convert the blob to a number of shares
 	blobShares, err := blob.BlobsToShares(blb)
+
+	// find the first share of the blob in the ODS
 	startShareIndex := -1
 	for i, sh := range block.eds.FlattenedODS() {
 		if bytes.Equal(sh, blobShares[0]) {
@@ -836,14 +802,17 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 		}
 	}
 	require.Greater(t, startShareIndex, 0)
-	sharesProof, err := pkgproof.NewShareInclusionProofFromEDS(block.eds, ns.ToAppNamespace(), shares.NewRange(startShareIndex, startShareIndex+len(blobShares)))
+
+	// create an inclusion proof of the blob using the share range instead of the commitment
+	sharesProof, err := pkgproof.NewShareInclusionProofFromEDS(&block.eds, ns.ToAppNamespace(), shares.NewRange(startShareIndex, startShareIndex+len(blobShares)))
 	require.NoError(t, err)
 	require.NoError(t, sharesProof.Validate(block.dataRoot))
 
+	// calculate the subtree roots
 	var subtreeRoots [][]byte
 	var dataCursor int
 	for _, proof := range sharesProof.ShareProofs {
-		ranges, err := nmt.ToLeafRanges(int(proof.Start), int(proof.End), appconsts.DefaultSubtreeRootThreshold)
+		ranges, err := nmt.ToLeafRanges(int(proof.Start), int(proof.End), nmt.SubtreeRootsWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
 		require.NoError(t, err)
 		roots, err := computeSubtreeRoots(blobShares[dataCursor:int32(dataCursor)+proof.End-proof.Start], ranges, int(proof.Start))
 		require.NoError(t, err)
@@ -851,6 +820,7 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 		dataCursor += int(proof.End - proof.Start)
 	}
 
+	// convert the nmt proof to be accepted by the commitment proof
 	var nmtProofs []*nmt.Proof
 	for _, proof := range sharesProof.ShareProofs {
 		nmtProof := nmt.NewInclusionProof(int(proof.Start), int(proof.End), proof.Nodes, true)
@@ -868,11 +838,12 @@ func generateCommitmentProofFromBlock(t *testing.T, block testBlock, blobIndex i
 	return ResultCommitmentProof{CommitmentProof: commitmentProof}
 }
 
-func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int) []testBlock {
+// generateTestBlocks generates a set of test blocks with a specific blob size and number of transactions
+func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int, numberOfTransactions int) []testBlock {
 	require.Greater(t, numberOfBlocks, 1)
 	var blocks []testBlock
 	for i := 1; i <= numberOfBlocks; i++ {
-		nss, msgs, blobs, coreTxs := createTestBlobTransactions(t, i+10, blobSize)
+		nss, msgs, blobs, coreTxs := createTestBlobTransactions(t, numberOfTransactions, blobSize)
 
 		var txs coretypes.Txs
 		txs = append(txs, coreTxs...)
@@ -892,8 +863,8 @@ func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int) []testBl
 			msgs:     msgs,
 			blobs:    blobs,
 			nss:      nss,
-			eds:      eds,
-			dah:      &dah,
+			eds:      *eds,
+			dah:      dah,
 			dataRoot: dataRoot,
 			coreTxs:  coreTxs,
 		})
@@ -901,17 +872,20 @@ func generateTestBlocks(t *testing.T, numberOfBlocks int, blobSize int) []testBl
 	return blocks
 }
 
-func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int) ([]namespace.Namespace, []*types.MsgPayForBlobs, []*types.Blob, []coretypes.Tx) {
+// createTestBlobTransactions generates a set of transactions that can be added to a blob.
+// The number of transactions dictates the number of PFBs that will be returned.
+// The size refers to the size of the data contained in the PFBs in bytes.
+func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int) ([]namespace.Namespace, []types.MsgPayForBlobs, []types.Blob, []coretypes.Tx) {
 	acc := "blobstream-api-tests"
 	kr := testfactory.GenerateKeyring(acc)
 	signer := types.NewKeyringSigner(kr, acc, "test")
 
 	var nss []namespace.Namespace
-	var msgs []*types.MsgPayForBlobs
-	var blobs []*types.Blob
+	var msgs []types.MsgPayForBlobs
+	var blobs []types.Blob
 	var coreTxs []coretypes.Tx
 	for i := 0; i < numberOfTransactions; i++ {
-		ns, msg, blob, coreTx := createTestBlobTransaction(t, signer, size)
+		ns, msg, blob, coreTx := createTestBlobTransaction(t, signer, size+i*1000)
 		nss = append(nss, ns)
 		msgs = append(msgs, msg)
 		blobs = append(blobs, blob)
@@ -921,16 +895,15 @@ func createTestBlobTransactions(t *testing.T, numberOfTransactions int, size int
 	return nss, msgs, blobs, coreTxs
 }
 
-func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size int) (namespace.Namespace, *types.MsgPayForBlobs, *types.Blob, coretypes.Tx) {
+// createTestBlobTransaction creates a test blob transaction using a specific signer and a specific PFB size.
+// The size is in bytes.
+func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size int) (namespace.Namespace, types.MsgPayForBlobs, types.Blob, coretypes.Tx) {
 	addr, err := signer.GetSignerInfo().GetAddress()
 	require.NoError(t, err)
 
 	ns := namespace.RandomBlobNamespace()
-	msg, blob := blobfactory.RandMsgPayForBlobsWithNamespaceAndSigner(
-		addr.String(),
-		ns,
-		size,
-	)
+	msg, blob := blobfactory.RandMsgPayForBlobsWithNamespaceAndSigner(addr.String(), ns, size)
+	require.NoError(t, err)
 
 	builder := signer.NewTxBuilder()
 	stx, err := signer.BuildSignedTx(builder, msg)
@@ -939,5 +912,5 @@ func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size i
 	require.NoError(t, err)
 	cTx, err := coretypes.MarshalBlobTx(rawTx, blob)
 	require.NoError(t, err)
-	return ns, msg, blob, cTx
+	return ns, *msg, *blob, cTx
 }

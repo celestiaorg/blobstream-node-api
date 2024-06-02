@@ -3,6 +3,8 @@ package blobstream
 import (
 	"fmt"
 
+	"github.com/celestiaorg/celestia-app/pkg/appconsts"
+
 	"github.com/celestiaorg/celestia-node/share"
 	"github.com/celestiaorg/nmt"
 	"github.com/celestiaorg/nmt/namespace"
@@ -12,40 +14,52 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+// ResultDataCommitment is the API response containing a data
+// commitment, aka data root tuple root.
 type ResultDataCommitment struct {
 	DataCommitment bytes.HexBytes `json:"data_commitment"`
 }
 
+// ResultDataRootInclusionProof is the API response containing the binary merkle
+// inclusion proof of a height to a data commitment.
 type ResultDataRootInclusionProof struct {
 	Proof merkle.Proof `json:"proof"`
 }
 
-// ResultShareProof is an API response that contains a ShareProof.
+// ResultShareProof is the API response that contains a ShareProof.
+// A share proof is a proof of a set of shares to the data root.
 type ResultShareProof struct {
 	ShareProof types.ShareProof `json:"share_proof"`
 }
 
 // ResultCommitmentProof is an API response that contains a CommitmentProof.
+// A commitment proof is a proof of a blob share commitment to the data root.
 type ResultCommitmentProof struct {
 	CommitmentProof CommitmentProof `json:"commitment_proof"`
 }
 
-// CommitmentProof is an inclusion proof of a commitment to the data root
-// TODO add protobuf definitions
+// CommitmentProof is an inclusion proof of a commitment to the data root.
+// TODO: Ask reviewers if we need protobuf definitions for this
 type CommitmentProof struct {
-	// TODO Data are the raw shares that are being proven.
+	// SubtreeRoots are the subtree roots of the blob's data that are
+	// used to create the commitment.
 	SubtreeRoots [][]byte `json:"subtree_roots"`
-	// TODO ShareProofs are NMT proofs that the shares in Data exist in a set of
-	// rows. There will be one ShareProof per row that the shares occupy.
+	// SubtreeRootProofs are the NMT proofs for the subtree roots
+	// to the row roots.
 	SubtreeRootProofs []*nmt.Proof `json:"subtree_root_proofs"`
-	// NamespaceID is the namespace id of the shares being proven. This
+	// NamespaceID is the namespace id of the commitment being proven. This
 	// namespace id is used when verifying the proof. If the namespace id doesn't
 	// match the namespace of the shares, the proof will fail verification.
-	NamespaceID      namespace.ID   `json:"namespace_id"`
+	NamespaceID namespace.ID `json:"namespace_id"`
+	// RowProof is the proof of the rows containing the blob's data to the
+	// data root.
 	RowProof         types.RowProof `json:"row_proof"`
 	NamespaceVersion uint8          `json:"namespace_version"`
 }
 
+// Validate performs basic validation to the commitment proof.
+// Note: it doesn't verify if the proof is valid or not.
+// Check Verify() for that.
 func (commitmentProof CommitmentProof) Validate() error {
 	if len(commitmentProof.SubtreeRoots) < len(commitmentProof.SubtreeRootProofs) {
 		return fmt.Errorf(
@@ -61,7 +75,6 @@ func (commitmentProof CommitmentProof) Validate() error {
 			len(commitmentProof.RowProof.Proofs),
 		)
 	}
-	// TODO either this or use root and Validate method
 	if int(commitmentProof.RowProof.EndRow-commitmentProof.RowProof.StartRow+1) != len(commitmentProof.RowProof.RowRoots) {
 		return fmt.Errorf(
 			"the number of rows %d must equal the number of row roots %d",
@@ -79,23 +92,39 @@ func (commitmentProof CommitmentProof) Validate() error {
 	return nil
 }
 
-// Verify verifies that a commitment proof is valid.
+// Verify verifies that a commitment proof is valid, i.e., the subtree roots commit
+// to some data that was posted to a square.
 // Expects the commitment proof to be properly formulated and validated
 // using the Validate() function.
 func (commitmentProof CommitmentProof) Verify(root []byte, subtreeRootThreshold int) (bool, error) {
-	nmtHasher := nmt.NewNmtHasher(share.NewSHA256Hasher(), share.NamespaceSize, true)
+	nmtHasher := nmt.NewNmtHasher(appconsts.NewBaseHashFunc(), share.NamespaceSize, true)
 
+	// computes the total number of shares proven.
+	numberOfShares := 0
+	for _, proof := range commitmentProof.SubtreeRootProofs {
+		numberOfShares += proof.End() - proof.Start()
+	}
+
+	// use the computed total number of shares to calculate the subtree roots
+	// width.
+	// the subtree roots width is defined in ADR-013:
+	// https://github.com/celestiaorg/celestia-app/blob/main/docs/architecture/adr-013-non-interactive-default-rules-for-zero-padding.md
+	subtreeRootsWidth := nmt.SubtreeRootsWidth(numberOfShares, subtreeRootThreshold)
+
+	// verify the proof of the subtree roots
 	subtreeRootsCursor := 0
 	for i, subtreeRootProof := range commitmentProof.SubtreeRootProofs {
-		ranges, err := nmt.ToLeafRanges(subtreeRootProof.Start(), subtreeRootProof.End(), subtreeRootThreshold)
+		// calculate the share range that each subtree root commits to.
+		ranges, err := nmt.ToLeafRanges(subtreeRootProof.Start(), subtreeRootProof.End(), subtreeRootsWidth)
 		if err != nil {
 			return false, err
 		}
 		valid, err := subtreeRootProof.VerifySubtreeRootInclusion(
 			nmtHasher,
 			commitmentProof.SubtreeRoots[subtreeRootsCursor:subtreeRootsCursor+len(ranges)],
-			subtreeRootThreshold,
+			subtreeRootsWidth,
 			commitmentProof.RowProof.RowRoots[i],
+			subtreeRootProof.Start(),
 		)
 		if err != nil {
 			return false, err

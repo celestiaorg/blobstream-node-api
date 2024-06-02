@@ -41,6 +41,7 @@ type Module interface {
 	ProveCommitment(ctx context.Context, height uint64, namespace share.Namespace, shareCommitment bytes.HexBytes) (*ResultCommitmentProof, error)
 }
 
+// InternalAPI refers to the existing Celestia-node API that will be used to fetch the required data.
 type InternalAPI struct {
 	GetByHeight func(ctx context.Context, height uint64) (*header.ExtendedHeader, error) `perm:"read"`
 
@@ -328,6 +329,10 @@ func (api API) fetchDataRootTuples(ctx context.Context, start, end uint64) ([]Da
 
 // ProveShares generates a share proof for a share range.
 // Note: queries the whole EDS to generate the proof.
+// This can be improved by selecting the set of shares that will need to be used to create
+// the proof and only querying them. However, that would require re-implementing the logic
+// in Core. Also, core also queries the whole EDS to generate the proof. So, it's fine for
+// now. In the future, when blocks get way bigger, we should revisit this and improve it.
 func (api API) ProveShares(ctx context.Context, height uint64, start, end uint64) (*ResultShareProof, error) {
 	if height == 0 {
 		return nil, fmt.Errorf("height cannot be equal to 0")
@@ -371,11 +376,13 @@ func (api API) ProveShares(ctx context.Context, height uint64, start, end uint64
 }
 
 // ProveCommitment generates a commitment proof for a share commitment.
+// It takes as argument the height of the block containing the blob of data, its
+// namespace and its share commitment.
 func (api API) ProveCommitment(ctx context.Context, height uint64, namespace share.Namespace, shareCommitment bytes.HexBytes) (*ResultCommitmentProof, error) {
-	// TODO debug this
 	if height == 0 {
 		return nil, fmt.Errorf("height cannot be equal to 0")
 	}
+
 	// get the share to row root proofs. these proofs coincide with the subtree root to row root proofs.
 	shareToRowRootProofs, err := api.Internal.GetProof(ctx, height, namespace, blob.Commitment(shareCommitment))
 	if err != nil {
@@ -397,11 +404,11 @@ func (api API) ProveCommitment(ctx context.Context, height uint64, namespace sha
 	var dataCursor int
 	for _, proof := range *shareToRowRootProofs {
 		// TODO: do we want directly use the default subtree root threshold or want to allow specifying which version to use?
-		ranges, err := nmt.ToLeafRanges(proof.Start(), proof.End(), appconsts.DefaultSubtreeRootThreshold)
+		ranges, err := nmt.ToLeafRanges(proof.Start(), proof.End(), nmt.SubtreeRootsWidth(len(blobShares), appconsts.DefaultSubtreeRootThreshold))
 		if err != nil {
 			return nil, err
 		}
-		roots, err := computeSubtreeRoots(blobShares[dataCursor:proof.End()-proof.Start()], ranges, proof.Start())
+		roots, err := computeSubtreeRoots(blobShares[dataCursor:dataCursor+proof.End()-proof.Start()], ranges, proof.Start())
 		if err != nil {
 			return nil, err
 		}
@@ -429,6 +436,9 @@ func (api API) ProveCommitment(ctx context.Context, height uint64, namespace sha
 			// we found the first row where the namespace data starts
 			// we should go over the row shares to find the row where the data lives
 			for i := 0; i < rowWidth; i++ {
+				// an alternative to this would be querying the whole EDS.
+				// if that's faster given the number of the queries to the network,
+				// we can change that in here.
 				sh, err := api.Internal.GetShare(ctx, extendedHeader, index, i)
 				if err != nil {
 					return nil, err
@@ -487,6 +497,8 @@ func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset in
 	if offset < 0 {
 		return nil, fmt.Errorf("the offset %d cannot be stricly negative", offset)
 	}
+
+	// create a tree containing the shares to generate their subtree roots
 	tree := nmt.New(appconsts.NewBaseHashFunc(), nmt.IgnoreMaxNamespace(true), nmt.NamespaceIDSize(share.NamespaceSize))
 	for _, sh := range shares {
 		var leafData []byte
@@ -496,6 +508,8 @@ func computeSubtreeRoots(shares []share.Share, ranges []nmt.LeafRange, offset in
 			return nil, err
 		}
 	}
+
+	// generate the subtree roots
 	var subtreeRoots [][]byte
 	for _, rg := range ranges {
 		root, err := tree.ComputeSubtreeRoot(rg.Start-offset, rg.End-offset)
