@@ -1,0 +1,27 @@
+name: lint
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  # Runs golangci-lint over the repository
+  # This workflow is run on every pull request and push to main
+  # The `golangci` job will pass without running if no *.{go, mod, sum} files have been modified.
+  golangci:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: technote-space/get-diff-action@v6
+        with:
+          SUFFIX_FILTER: |
+            .go
+            .mod
+            .sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout 10m
+        if: env.GIT_DIFF
