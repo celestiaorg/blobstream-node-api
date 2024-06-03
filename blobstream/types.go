@@ -144,3 +144,43 @@ func (commitmentProof CommitmentProof) Verify(root []byte, subtreeRootThreshold 
 func (commitmentProof CommitmentProof) GenerateCommitment() bytes.HexBytes {
 	return merkle.HashFromByteSlices(commitmentProof.SubtreeRoots)
 }
+
+// ResultSubtreeRootToCommitmentProof is an API response that contains a SubtreeRootToCommitmentProof.
+// A subtree root to commitment proof is a proof of a subtree root to a share commitment.
+type ResultSubtreeRootToCommitmentProof struct {
+	SubtreeRootToCommitmentProof SubtreeRootToCommitmentProof `json:"subtree_root_to_commitment_proof"`
+}
+
+// SubtreeRootToCommitmentProof a subtree root to commitment proof is a proof of a subtree root to a share commitment.
+type SubtreeRootToCommitmentProof struct {
+	Proof merkle.Proof `json:"proof"`
+}
+
+// Verify verifies that a share commitment commits to the provided subtree root.
+func (subtreeRootProof SubtreeRootToCommitmentProof) Verify(shareCommitment bytes.HexBytes, subtreeRoot []byte) (bool, error) {
+	err := subtreeRootProof.Proof.Verify(shareCommitment.Bytes(), subtreeRoot)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResultShareToSubtreeRootProof is an API response that contains a ShareToSubtreeRootProof.
+// A share to subtree root proof is an inclusion proof of a share to a subtree root.
+type ResultShareToSubtreeRootProof struct {
+	ShareToSubtreeRootProof ShareToSubtreeRootProof `json:"share_to_subtree_root_proof"`
+}
+
+// ShareToSubtreeRootProof a share to subtree root proof is an inclusion proof of a share to a subtree root.
+type ShareToSubtreeRootProof struct {
+	Proof merkle.Proof `json:"proof"`
+}
+
+// Verify verifies that a share commitment commits to the provided subtree root.
+func (shareToSubtreeRootProof ShareToSubtreeRootProof) Verify(subtreeRoot []byte, share []byte) (bool, error) {
+	err := shareToSubtreeRootProof.Proof.Verify(subtreeRoot, share)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

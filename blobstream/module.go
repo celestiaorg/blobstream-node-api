@@ -527,3 +527,23 @@ func uint64ToInt(number uint64) (int, error) {
 	}
 	return int(number), nil
 }
+
+// ProveSubtreeRootToCommitment generates a subtree root to share commitment inclusion proof.
+func ProveSubtreeRootToCommitment(subtreeRoots [][]byte, subtreeRootIndex uint64) (*ResultSubtreeRootToCommitmentProof, error) {
+	_, proofs := merkle.ProofsFromByteSlices(subtreeRoots)
+	return &ResultSubtreeRootToCommitmentProof{
+		SubtreeRootToCommitmentProof: SubtreeRootToCommitmentProof{
+			Proof: *proofs[subtreeRootIndex],
+		},
+	}, nil
+}
+
+// ProveShareToSubtreeRoot generates a share to subtree root inclusion proof
+func ProveShareToSubtreeRoot(shares [][]byte, shareIndex uint64) (*ResultShareToSubtreeRootProof, error) {
+	_, proofs := merkle.ProofsFromByteSlices(shares)
+	return &ResultShareToSubtreeRootProof{
+		ShareToSubtreeRootProof: ShareToSubtreeRootProof{
+			Proof: *proofs[shareIndex],
+		},
+	}, nil
+}

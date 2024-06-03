@@ -3,6 +3,7 @@ package blobstream
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -935,4 +936,61 @@ func createTestBlobTransaction(t *testing.T, signer *types.KeyringSigner, size i
 	cTx, err := coretypes.MarshalBlobTx(rawTx, blob)
 	require.NoError(t, err)
 	return ns, msg, blob, cTx
+}
+
+func TestShareToSubtreeRootProof(t *testing.T) {
+	var shares [][]byte
+	// generate some shares
+	for i := 0; i < 10; i++ {
+		shares = append(shares, bytes.Repeat([]byte{0x1}, appconsts.ShareSize))
+	}
+	// calculate the expected proof
+	subtreeRoot, expectedProofs := merkle.ProofsFromByteSlices(shares)
+
+	// calculate the actual proofs
+	var actualProofs []*ResultShareToSubtreeRootProof
+	for i := range shares {
+		proof, err := ProveShareToSubtreeRoot(shares, uint64(i))
+		require.NoError(t, err)
+		actualProofs = append(actualProofs, proof)
+	}
+
+	// compare the proofs and validate
+	for shareIndex, actualProof := range actualProofs {
+		t.Run(fmt.Sprintf("shareIndex=%d", shareIndex), func(t *testing.T) {
+			valid, err := actualProof.ShareToSubtreeRootProof.Verify(subtreeRoot, shares[shareIndex])
+			assert.NoError(t, err)
+			assert.True(t, valid)
+			assert.Equal(t, *expectedProofs[shareIndex], actualProof.ShareToSubtreeRootProof.Proof)
+		})
+	}
+}
+
+func TestSubtreeRootsToCommitmentProof(t *testing.T) {
+	rowRootSize := sha256.Size + 2*appconsts.NamespaceSize
+	var subtreeRoots [][]byte
+	// generate some subtreeRoots
+	for i := 0; i < 10; i++ {
+		subtreeRoots = append(subtreeRoots, bytes.Repeat([]byte{0x1}, rowRootSize))
+	}
+	// calculate the expected proof
+	shareCommitment, expectedProofs := merkle.ProofsFromByteSlices(subtreeRoots)
+
+	// calculate the actual proofs
+	var actualProofs []*ResultSubtreeRootToCommitmentProof
+	for i := range subtreeRoots {
+		proof, err := ProveSubtreeRootToCommitment(subtreeRoots, uint64(i))
+		require.NoError(t, err)
+		actualProofs = append(actualProofs, proof)
+	}
+
+	// compare the proofs and validate
+	for subtreeRootIndex, actualProof := range actualProofs {
+		t.Run(fmt.Sprintf("subtreeRootIndex=%d", subtreeRootIndex), func(t *testing.T) {
+			valid, err := actualProof.SubtreeRootToCommitmentProof.Verify(shareCommitment, subtreeRoots[subtreeRootIndex])
+			assert.NoError(t, err)
+			assert.True(t, valid)
+			assert.Equal(t, *expectedProofs[subtreeRootIndex], actualProof.SubtreeRootToCommitmentProof.Proof)
+		})
+	}
 }
